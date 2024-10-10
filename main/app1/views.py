@@ -121,7 +121,6 @@ def csv(request):
         form = csvForm(request.POST,request.FILES)
         if form.is_valid():
             csv_file = request.FILES['csv_file']
-            strategy = form.cleaned_data['strategy']
             df = pd.read_csv(csv_file, index_col=0, parse_dates=True)
             print(df)
             normal_stop_loss=0
@@ -161,126 +160,60 @@ def csv(request):
         
             tnx=yf.download('^TNX',start_date,end_date)
 
-            object1 = CommonModel.objects.filter(name=strategy).first()
-            object2=UserModel.objects.filter(owner=user,name=strategy).first()
-            if object1:
-                python_code_string = object1.source
-                
-                
-                df, error_message = execute_python_code(python_code_string,df)
+            a = backtesting_class(df, bitmask, normal_stop_loss, normal_take_profit, trailing_stop_loss, dynamic_exit_condition, atr_take_loss, atr_take_profit, tnx)
+            results = a.start_backtest()
 
-                a = backtesting_class( bitmask,df, normal_stop_loss, normal_take_profit, trailing_stop_loss, dynamic_exit_condition, atr_take_loss, atr_take_profit, tnx)
-                results = a.start_backtest()
+            if (results != None) :
+                port = (results[12])
+                dates = (results[13])
 
-                if (results != None) :
-                    port = (results[12])
-                    dates = (results[13])
+                fig = px.line( x=dates, y=port)
+                fig.update_yaxes(tickprefix='INR ')
 
-                    fig = px.line( x=dates, y=port, title='CSV')
-                    fig.update_yaxes(tickprefix='INR ')
+                fig.update_layout(
+                title={
+                    'text': 'Performance on CSV ',
+                    'y':0.9,
+                    'x':0.5,
+                    'xanchor': 'center',
+                    'yanchor': 'top'
+                },
 
-                    fig.update_layout(
-                    title={
-                        'text': f'{strategy} Strategy Performance on CSV ',
-                        'y':0.9,
-                        'x':0.5,
-                        'xanchor': 'center',
-                        'yanchor': 'top'
-                    },
+                xaxis_title="Time Period",
+                yaxis_title="Portfolio Value (INR)",
+                title_font=dict(size=24, color='black', family='Arial'),
 
-                    xaxis_title="Time Period",
-                    yaxis_title="Portfolio Value (INR)",
-                    title_font=dict(size=24, color='black', family='Arial'),
+                xaxis=dict(
 
-                    xaxis=dict(
-
-                        showline=True,
-                        showgrid=True,
-                        showticklabels=True,
-                        linecolor='rgb(204, 204, 204)',
-                        linewidth=1,
-                        ticks='outside',
-                        tickfont=dict(
-                            family='Arial',
-                            size=12,
-                            color='rgb(82, 82, 82)',
-                        ),
-
+                    showline=True,
+                    showgrid=True,
+                    showticklabels=True,
+                    linecolor='rgb(204, 204, 204)',
+                    linewidth=1,
+                    ticks='outside',
+                    tickfont=dict(
+                        family='Arial',
+                        size=12,
+                        color='rgb(82, 82, 82)',
                     ),
 
-                    yaxis=dict(
-                        showgrid=True,
-                        zeroline=False,
-                        showline=True,
-                        showticklabels=True,
-                    ),
+                ),
 
-                    plot_bgcolor='white' )
+                yaxis=dict(
+                    showgrid=True,
+                    zeroline=False,
+                    showline=True,
+                    showticklabels=True,
+                ),
 
-                    fig.update_traces(mode='lines', line_shape='linear', line=dict(width=2))
-                    plot_div = fig.to_html(full_html=False)
+                plot_bgcolor='white' )
+
+                fig.update_traces(mode='lines', line_shape='linear', line=dict(width=2))
+                plot_div = fig.to_html(full_html=False)
 
 
-                
-            else:
-                if(object2):
-                    python_code_string = object2.source
-                
-                    df, error_message = execute_python_code(python_code_string,df)
-
-                    a = backtesting_class(bitmask,df, normal_stop_loss, normal_take_profit, trailing_stop_loss, dynamic_exit_condition, atr_take_loss, atr_take_profit, tnx)
-                    results = a.start_backtest()
-                        
-                    if (results != None) :
-                        port = (results[12])
-                        dates = (results[13])
-
-                        fig = px.line( x=dates, y=port, title=f'CSV')
-                        fig.update_yaxes(tickprefix='INR ')
-
-                        fig.update_layout(
-                        title={
-                            'text': f'{strategy} Strategy Performance on CSV ',
-                            'y':0.9,
-                            'x':0.5,
-                            'xanchor': 'center',
-                            'yanchor': 'top'
-                        },
-
-                        xaxis_title="Time Period",
-                        yaxis_title="Portfolio Value (INR)",
-                        title_font=dict(size=24, color='black', family='Arial'),
-
-                        xaxis=dict(
-
-                            showline=True,
-                            showgrid=True,
-                            showticklabels=True,
-                            linecolor='rgb(204, 204, 204)',
-                            linewidth=1,
-                            ticks='outside',
-                            tickfont=dict(
-                                family='Arial',
-                                size=12,
-                                color='rgb(82, 82, 82)',
-                            ),
-
-                        ),
-
-                        yaxis=dict(
-                            showgrid=True,
-                            zeroline=False,
-                            showline=True,
-                            showticklabels=True,
-                        ),
-
-                        plot_bgcolor='white' )
-
-                        fig.update_traces(mode='lines', line_shape='linear', line=dict(width=2))
-                        plot_div = fig.to_html(full_html=False)
-
-                else:
-                    error_message = f"Backtesting failed"
+        else:
+            error_message = f"Backtesting failed"
     else:
         form=csvForm()
 
@@ -356,11 +289,14 @@ def backtesting(request):
     dates = None
 
     if request.method == "POST":
-        form = StrategyForm(request.POST)
+        form = StrategyForm(request.POST,user=request.user)
         if form.is_valid():
             
             ticker = form.cleaned_data['ticker']
+            # common_strategy = form.cleaned_data['common_strategy']
             strategy = form.cleaned_data['strategy']
+            
+
             end_date = form.cleaned_data['end_date']
             start_date = form.cleaned_data['start_date']
             normal_stop_loss=0
@@ -403,11 +339,12 @@ def backtesting(request):
 
             data = yf.download(ticker, start_date, end_date)
             tnx=yf.download('^TNX',start_date,end_date)
-           
+            print(data)
            
             object1 = CommonModel.objects.filter(name=strategy).first()
             object2=UserModel.objects.filter(owner=user,name=strategy).first()
             if object1:
+                # object1 = CommonModel.objects.filter(name=common_strategy).first()
                 python_code_string = object1.source
                 
                 
@@ -468,11 +405,12 @@ def backtesting(request):
                 
             else:
                 if(object2):
+                    # object2=UserModel.objects.filter(owner=user,name=strategy).first()
                     python_code_string = object2.source
                 
                     data, error_message = execute_python_code(python_code_string,data)
 
-                    a = backtesting_class(data, bitmask, normal_stop_loss, normal_take_profit, trailing_stop_loss, dynamic_exit_condition, atr_take_loss, atr_take_profit, tnx)
+                    a = backtesting_class(bitmask, data, normal_stop_loss, normal_take_profit, trailing_stop_loss, dynamic_exit_condition, atr_take_loss, atr_take_profit, tnx)
                     results = a.start_backtest()
                         
                     if (results != None) :
@@ -525,13 +463,15 @@ def backtesting(request):
                                 
 
                 else:
-                    error_message = f"No strategy found with name '{strategy}'"               
+                    error_message = f"No strategy found with name '{strategy} or {strategy}'" 
+        else:
+            print("Hello moto")              
                 
     else:
         
-        form = StrategyForm()
-
-
+        form = StrategyForm(user=request.user)
+        # print(form.fields['user_strategy'])
+        
 
         
     if(results==None):
@@ -597,4 +537,4 @@ def backtesting(request):
 @login_required
 def contact(request):
     return render(request, 'app1/contact.html')
-    
+
